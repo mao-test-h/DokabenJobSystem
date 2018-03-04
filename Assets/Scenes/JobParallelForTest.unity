@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 1526980366}
-  m_IndirectSpecularColor: {r: 0.18028378, g: 0.22571412, b: 0.30692285, a: 1}
+  m_IndirectSpecularColor: {r: 0.18028355, g: 0.22571374, b: 0.30692255, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -196,7 +196,7 @@ GameObject:
   - component: {fileID: 667928404}
   - component: {fileID: 667928403}
   m_Layer: 0
-  m_Name: DokabenJobSystem
+  m_Name: JobParallelForTest
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -215,10 +215,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _dokabenPrefab: {fileID: 1024360859563018, guid: 342a720fac3cbc841bb360d85894f472,
     type: 2}
-  _maxObjectNum: 1000
+  _maxObjectNum: 10000
   _cellNum: 7
   _positionInterval: {x: 5, y: 2, z: 3}
   _innerloopBatchCount: 7
+  _jobSystem: 1
 --- !u!4 &667928404
 Transform:
   m_ObjectHideFlags: 0

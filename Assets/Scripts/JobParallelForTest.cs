@@ -9,22 +9,8 @@ using Unity.Collections;
 
 namespace MainContents
 {
-    public sealed class DokabenJobSystem : MonoBehaviour
+    public sealed class JobParallelForTest : MonoBehaviour
     {
-        // ------------------------------
-        #region // Constants
-
-        // コマ数
-        const int Framerate = 9;
-
-        // 1コマに於ける回転角度
-        const float Angle = (90f / Framerate); // 90度をフレームレートで分割
-
-        // コマ中の待機時間
-        const float Interval = 0.2f;
-
-        #endregion // Constants
-
         // ------------------------------
         #region // Defines
 
@@ -63,39 +49,7 @@ namespace MainContents
             public void Execute(int index)
             {
                 DokabenStruct accessor = this.Accessor[index];
-                Matrix4x4 m = Matrix4x4.identity;
-                float x = 0f, y = 0f, z = 0f;
-                m.SetTRS(new Vector3(x, y, z), Quaternion.identity, Vector3.one);
-                if (accessor.DeltaTimeCounter >= Interval)
-                {
-                    // 原点を-0.5ずらして下端に設定
-                    float halfY = y - 0.5f;
-                    float rot = accessor.CurrentAngle * Mathf.Deg2Rad;
-                    float sin = Mathf.Sin(rot);
-                    float cos = Mathf.Cos(rot);
-                    // 任意の原点周りにX軸回転を行う
-                    m.m11 = cos;
-                    m.m12 = -sin;
-                    m.m21 = sin;
-                    m.m22 = cos;
-                    m.m13 = halfY - halfY * cos + z * sin;
-                    m.m23 = z - halfY * sin - z * cos;
-
-                    accessor.FrameCounter = accessor.FrameCounter + 1;
-                    if (accessor.FrameCounter >= Framerate)
-                    {
-                        accessor.CurrentAngle = -accessor.CurrentAngle;
-                        accessor.FrameCounter = 0;
-                    }
-
-                    accessor.DeltaTimeCounter = 0f;
-                }
-                else
-                {
-                    accessor.DeltaTimeCounter += this.DeltaTime;
-                }
-                accessor.Matrix = m;
-                this.Accessor[index] = accessor;
+                this.Accessor[index] = JobParallelForTest.Rotate(this.DeltaTime, accessor);
             }
         }
 
@@ -119,6 +73,9 @@ namespace MainContents
         // 実行粒度
         [SerializeField] int _innerloopBatchCount = 7;
 
+        // JobSystemでの実行ならtrue
+        [SerializeField] bool _jobSystem = false;
+
         #endregion // Private Members(Editable)
 
         // ------------------------------
@@ -133,10 +90,16 @@ namespace MainContents
         // Job用の回転計算用データ
         NativeArray<DokabenStruct> _dokabenStructs;
 
+        // mesh頂点の数
+        int _vertsLen = 0;
+
+        // メッシュの頂点のバッファ
+        Vector3[] _vertsBuff = null;
+
         #endregion  // Private Members
 
 
-        // ------------------------------
+        // ----------------------------------------------------
         #region // Unity Events
 
         void Start()
@@ -145,7 +108,7 @@ namespace MainContents
             this._dokabenStructs = new NativeArray<DokabenStruct>(this._maxObjectNum, Allocator.Persistent);
             for (int i = 0; i < this._maxObjectNum; ++i)
             {
-                this._dokabenStructs[i] = new DokabenStruct(Angle);
+                this._dokabenStructs[i] = new DokabenStruct(Constants.Angle);
             }
 
             // ドカベンの生成
@@ -158,34 +121,37 @@ namespace MainContents
                     (i % this._cellNum) * (this._positionInterval.x),
                     ((i / this._cellNum) % this._cellNum) * this._positionInterval.y,
                     (i / (this._cellNum * this._cellNum)) * this._positionInterval.z);
+                if (i > this._maxObjectNum - 2)
+                {
+                    this._vertsLen = this._dokabens[i].mesh.vertices.Length;
+                }
             }
+            this._vertsBuff = new Vector3[this._vertsLen];
         }
 
         void Update()
         {
-            // 回転計算用jobの作成
-            MyParallelForUpdate rotateJob = new MyParallelForUpdate()
+            float deltaTime = Time.deltaTime;
+            if (this._jobSystem)
             {
-                Accessor = this._dokabenStructs,
-                DeltaTime = Time.deltaTime,
-            };
-            // Jobの実行
-            this._jobHandle = rotateJob.Schedule(this._maxObjectNum, this._innerloopBatchCount);
-            // Jobが終わるまで処理をブロック
-            this._jobHandle.Complete();
+                this.JobSystemCalculation(deltaTime);
+            }
+            else
+            {
+                this.UpdateCalculation(deltaTime);
+            }
 
             // 計算結果を各ドカベンに反映
             for (int i = 0; i < this._maxObjectNum; ++i)
             {
-                var meshFilter = this._dokabens[i];
-                var matrix = this._dokabenStructs[i].Matrix;
-                var origVerts = meshFilter.mesh.vertices;
-                var newVerts = new Vector3[origVerts.Length];
-                for (int j = 0; j < origVerts.Length; ++j)
+                var matrix = this._dokabenStructs[i];
+                var mesh = this._dokabens[i].mesh;
+                var origVerts = mesh.vertices;
+                for (int j = 0; j < this._vertsLen; ++j)
                 {
-                    newVerts[j] = matrix.MultiplyPoint3x4(origVerts[j]);
+                    this._vertsBuff[j] = matrix.Matrix.MultiplyPoint3x4(origVerts[j]);
                 }
-                meshFilter.mesh.vertices = newVerts;
+                mesh.vertices = this._vertsBuff;
             }
         }
 
@@ -197,12 +163,72 @@ namespace MainContents
         }
 
         #endregion  // Unity Events
+
+        // ----------------------------------------------------
+        #region // Private Methods
+
+        // 配列を回して計算するテスト(MainThread上で実行)
+        void UpdateCalculation(float deltaTime)
+        {
+            for (int i = 0; i < this._maxObjectNum; ++i)
+            {
+                this._dokabenStructs[i] = JobParallelForTest.Rotate(deltaTime, this._dokabenStructs[i]);
+            }
+        }
+
+        // JobSystemで計算するテスト
+        void JobSystemCalculation(float deltaTime)
+        {
+            // 回転計算用jobの作成
+            MyParallelForUpdate rotateJob = new MyParallelForUpdate()
+            {
+                Accessor = this._dokabenStructs,
+                DeltaTime = deltaTime,
+            };
+            // Jobの実行
+            this._jobHandle = rotateJob.Schedule(this._maxObjectNum, this._innerloopBatchCount);
+            // Jobが終わるまで処理をブロック
+            this._jobHandle.Complete();
+        }
+
+        // 回転の算出
+        static DokabenStruct Rotate(float deltaTime, DokabenStruct data)
+        {
+            Matrix4x4 m = Matrix4x4.identity;
+            float x = 0f, y = 0f, z = 0f;
+            m.SetTRS(new Vector3(x, y, z), Quaternion.identity, Vector3.one);
+            if (data.DeltaTimeCounter >= Constants.Interval)
+            {
+                // 原点を-0.5ずらして下端に設定
+                float halfY = y - 0.5f;
+                float rot = data.CurrentAngle * Mathf.Deg2Rad;
+                float sin = Mathf.Sin(rot);
+                float cos = Mathf.Cos(rot);
+                // 任意の原点周りにX軸回転を行う
+                m.m11 = cos;
+                m.m12 = -sin;
+                m.m21 = sin;
+                m.m22 = cos;
+                m.m13 = halfY - halfY * cos + z * sin;
+                m.m23 = z - halfY * sin - z * cos;
+
+                data.FrameCounter = data.FrameCounter + 1;
+                if (data.FrameCounter >= Constants.Framerate)
+                {
+                    data.CurrentAngle = -data.CurrentAngle;
+                    data.FrameCounter = 0;
+                }
+
+                data.DeltaTimeCounter = 0f;
+            }
+            else
+            {
+                data.DeltaTimeCounter += deltaTime;
+            }
+            data.Matrix = m;
+            return data;
+        }
+
+        #endregion // Private Methods
     }
 }
-
-
-// クラスRotate
-// https://docs.oracle.com/javase/jp/8/javafx/api/javafx/scene/transform/Rotate.html
-
-// 任意点周りの回転移動
-// http://imagingsolution.blog107.fc2.com/blog-entry-111.html
