@@ -45,13 +45,29 @@ namespace MainContents
             public NativeArray<DokabenStruct> Accessor;
             public float DeltaTime;
 
+            // JobSystem側で実行する処理
             public void Execute(int index, TransformAccess transform)
             {
                 DokabenStruct accessor = this.Accessor[index];
+                transform.rotation = Rotate(ref accessor, transform.rotation);
+                this.Accessor[index] = accessor;
+            }
+
+            // MonoBehaviour.Updateで回す際に呼び出す処理
+            public void ManualExecute(int index, Transform transform)
+            {
+                DokabenStruct accessor = this.Accessor[index];
+                transform.rotation = Rotate(ref accessor, transform.rotation);
+                this.Accessor[index] = accessor;
+            }
+
+            // 回転の算出
+            Quaternion Rotate(ref DokabenStruct accessor, Quaternion rot)
+            {
                 if (accessor.DeltaTimeCounter >= Constants.Interval)
                 {
                     accessor.CurrentRot += accessor.CurrentAngle;
-                    transform.rotation = Quaternion.AngleAxis(accessor.CurrentRot, -Vector3.right);
+                    rot = Quaternion.AngleAxis(accessor.CurrentRot, -Vector3.right);
                     accessor.FrameCounter = accessor.FrameCounter + 1;
                     if (accessor.FrameCounter >= Constants.Framerate)
                     {
@@ -64,7 +80,7 @@ namespace MainContents
                 {
                     accessor.DeltaTimeCounter += this.DeltaTime;
                 }
-                this.Accessor[index] = accessor;
+                return rot;
             }
         }
 
@@ -85,6 +101,9 @@ namespace MainContents
         // 配置間隔
         [SerializeField] Vector3 _positionInterval;
 
+        // trueならJobSystemで実行
+        [SerializeField] bool _isJobSystem = false;
+
         #endregion // Private Members(Editable)
 
         // ------------------------------
@@ -96,8 +115,11 @@ namespace MainContents
         // Job用の回転計算用データ
         NativeArray<DokabenStruct> _dokabenStructs;
 
-        // MyParallelForTransformUpdate実行用配列
+        // JobSystem側で実行する際に用いるTransfromの配列
         TransformAccessArray _dokabenTransformAccessArray;
+
+        // MonoBehaviour.Updateで実行する際に用いるTransformの配列
+        Transform[] _dokabenTrses = null;
 
         #endregion  // Private Members
 
@@ -116,6 +138,7 @@ namespace MainContents
 
             // ドカベンの生成
             this._dokabenTransformAccessArray = new TransformAccessArray(this._maxObjectNum);
+            this._dokabenTrses = new Transform[this._maxObjectNum];
             for (int i = 0; i < this._maxObjectNum; ++i)
             {
                 var obj = Instantiate<GameObject>(this._dokabenPrefab);
@@ -125,19 +148,31 @@ namespace MainContents
                     ((i / this._cellNum) % this._cellNum) * this._positionInterval.y,
                     (i / (this._cellNum * this._cellNum)) * this._positionInterval.z);
                 this._dokabenTransformAccessArray.Add(trs);
+                this._dokabenTrses[i] = trs;
             }
         }
 
         void Update()
         {
-            this._jobHandle.Complete();
             MyParallelForTransformUpdate rotateJob = new MyParallelForTransformUpdate()
             {
                 Accessor = this._dokabenStructs,
                 DeltaTime = Time.deltaTime,
             };
-            this._jobHandle = rotateJob.Schedule(this._dokabenTransformAccessArray);
-            JobHandle.ScheduleBatchedJobs();
+
+            if (this._isJobSystem)
+            {
+                this._jobHandle.Complete();
+                this._jobHandle = rotateJob.Schedule(this._dokabenTransformAccessArray);
+                JobHandle.ScheduleBatchedJobs();
+            }
+            else
+            {
+                for (int i = 0; i < this._maxObjectNum; ++i)
+                {
+                    rotateJob.ManualExecute(i, this._dokabenTrses[i]);
+                }
+            }
         }
 
         void OnDestroy()
