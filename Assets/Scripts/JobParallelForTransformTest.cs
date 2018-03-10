@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Profiling;
 
 using UnityEngine.Jobs;
 using Unity.Jobs;
@@ -160,6 +161,7 @@ namespace MainContents
                 DeltaTime = Time.deltaTime,
             };
 
+            Profiler.BeginSample("    ----- RotateCalculation");
             if (this._isJobSystem)
             {
                 this._jobHandle.Complete();
@@ -173,6 +175,7 @@ namespace MainContents
                     rotateJob.ManualExecute(i, this._dokabenTrses[i]);
                 }
             }
+            Profiler.EndSample();
         }
 
         void OnDestroy()
@@ -184,5 +187,16 @@ namespace MainContents
         }
 
         #endregion  // Unity Events
+
+        // ----------------------------------------------------
+        #region // Public Methods(Button Events)
+
+        // JobSystemの切り替え
+        public void ChangeJobSystem(bool isOn)
+        {
+            this._isJobSystem = isOn;
+        }
+
+        #endregion  // Public Methods(Button Events)
     }
 }

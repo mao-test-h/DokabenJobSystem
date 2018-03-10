@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Profiling;
 
 using UnityEngine.Jobs;
 using Unity.Jobs;
@@ -74,7 +75,7 @@ namespace MainContents
         [SerializeField] int _innerloopBatchCount = 7;
 
         // JobSystemでの実行ならtrue
-        [SerializeField] bool _jobSystem = false;
+        [SerializeField] bool _isJobSystem = false;
 
         #endregion // Private Members(Editable)
 
@@ -131,8 +132,9 @@ namespace MainContents
 
         void Update()
         {
+            Profiler.BeginSample("    ----- RotateCalculation");
             float deltaTime = Time.deltaTime;
-            if (this._jobSystem)
+            if (this._isJobSystem)
             {
                 this.JobSystemCalculation(deltaTime);
             }
@@ -140,7 +142,9 @@ namespace MainContents
             {
                 this.UpdateCalculation(deltaTime);
             }
+            Profiler.EndSample();
 
+            Profiler.BeginSample("    ===== MultiplyPoint3x4");
             // 計算結果を各ドカベンに反映
             for (int i = 0; i < this._maxObjectNum; ++i)
             {
@@ -153,6 +157,7 @@ namespace MainContents
                 }
                 mesh.vertices = this._vertsBuff;
             }
+            Profiler.EndSample();
         }
 
         void OnDestroy()
@@ -163,6 +168,17 @@ namespace MainContents
         }
 
         #endregion  // Unity Events
+
+        // ----------------------------------------------------
+        #region // Public Methods(Button Events)
+
+        // JobSystemの切り替え
+        public void ChangeJobSystem(bool isOn)
+        {
+            this._isJobSystem = isOn;
+        }
+
+        #endregion  // Public Methods(Button Events)
 
         // ----------------------------------------------------
         #region // Private Methods
